@@ -1,8 +1,8 @@
 <?php
 
 $functions = [
-    
-    'quiz' => [
+
+    'local_quiz_ai' => [
         'classname'   => 'local_quiz\\external\\externallib',
         'methodname'  => 'airesponse',
         'classpath'   => '',

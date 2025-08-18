@@ -92,6 +92,9 @@ function attempt_submitted(\mod_quiz\event\attempt_submitted $event) {
 
             $previoussubmissions = implode(',', $previousattemptids);
 
+            // $fieldshortname = 'indexing_required'; // Replace with your field shortname
+            // $courseindexing =     get_course_custom_field_value($courseid, $fieldshortname);
+
             $data = [
                 'userid' => $userid,
                 'courseid' => $quiz->course,
@@ -99,19 +102,23 @@ function attempt_submitted(\mod_quiz\event\attempt_submitted $event) {
                 'quiztitle' => $quiz->name,
                 'quizdescription' => $quiz->intro,
                 'attemptid' => $attemptid,
-                'maxgrade' => $maxgrade,
-                'gradetopass' => $gradetopass,
+                'maxgrade' => intval($maxgrade),
+                'gradetopass' => intval($gradetopass),
                 'previoussubmissions' => trim($previoussubmissions),
                 'studentname' => fullname($user),
                 'isdeleted' => false,
-                'indexingflag' => true,
-                'question' => []
+                'indexingflag' => false, //($courseindexing == 1) ? 1 : 0,
+                'questions' => []
             ];
+
+            $is_qtype_grage = 0;
 
             foreach ($quba->get_attempt_iterator() as $slot => $question_attempt) {
                 $question = $question_attempt->get_question();
 
                 if ($question->qtype instanceof qtype_essay) {
+
+                    $is_qtype_grage = 1;
 
                     // Essay text
                     $response = $question_attempt->get_last_qt_data();
@@ -155,14 +162,13 @@ function attempt_submitted(\mod_quiz\event\attempt_submitted $event) {
                         $essaytext = $answer[0];
                     }
                     
-
-                    $data['question'][] = [
+                    $data['questions'][] = [
                         'id' => $question->id,
                         'qtitle' => $question->name,
                         'qtext' => $question->questiontext,
                         'qtype' => 'essay',
-                        'minwordlimit' => $question->minwordlimit,
-                        'maxwordlimit' => $question->maxwordlimit,
+                        'minwordlimit' => $question->minwordlimit ? '"'.$question->minwordlimit.'"' : '',
+                        'maxwordlimit' => $question->maxwordlimit ? '"'.$question->maxwordlimit.'"' : '',
                         'maxmark' => $maxmark,
                         'answer' => $essaytext,
                         'fileids' => $fileids
@@ -171,30 +177,33 @@ function attempt_submitted(\mod_quiz\event\attempt_submitted $event) {
                 }
             }
 
-            // $response = execute_curl_postapi($data);
+            if ($is_qtype_grage) {
+                $response = execute_curl_postapi($data);
+                $record = new stdClass();
+                $record->userid = $userid;
+                $record->courseid = $quiz->course;
+                $record->quizid = $attempt->quiz;
+                $record->attemptid = $attemptid;
+                $record->gradetopass = $gradetopass;
+                $record->feedbackdesc = '';
+                
+                if (!empty($data['questions'])) {
+                    $record->question = json_encode($data['questions']);
+                } else {
+                    $record->question = '';
+                }
 
-            $record = new stdClass();
-            $record->userid = $userid;
-            $record->courseid = $quiz->course;
-            $record->quizid = $attempt->quiz;
-            $record->attemptid = $attemptid;
-            $record->gradetopass = $gradetopass;
-            $record->question = '';
-            $record->status = 1; // ($response->status) ? 1 : 0;
-            $record->timecreated = $record->timemodified = time();
+                $record->status = ($response->status) ? 1 : 0;
+                $record->timecreated = $record->timemodified = time();
 
-            $DB->insert_record('quiz_response', $record);
-            
-            echo "<pre>";
-            print_r($response);
-            die;
+                $DB->insert_record('quiz_response', $record);
 
-            if (isset($response->status) && $response->status === true) {
-                debugging("Successfully updated sync status for courseId: {$courseid}", DEBUG_DEVELOPER);
-            } else {
-                debugging("Failed to update sync status for courseId: {$courseid}", DEBUG_DEVELOPER);      
+                /*if (isset($response->status) && $response->status) {
+                    debugging("Successfully updated sync status for courseId: {$courseid}", DEBUG_DEVELOPER);
+                } else {
+                    debugging("Failed to update sync status for courseId: {$courseid}", DEBUG_DEVELOPER);      
+                }   */ 
             }
-
             
         }
     } catch (Exception $e) {
@@ -242,12 +251,6 @@ function execute_curl_postapi($data) {
     if (curl_errno($ch)) {
         debugging("cURL PUT error: " . curl_error($ch), DEBUG_DEVELOPER);
     }
-
-    echo $endpoint."<pre>";
-    print_r($data);
-    print_r($responseRaw);
-    print_r($response);
-    die;
 
     curl_close($ch);
     $response = json_decode($responseRaw);

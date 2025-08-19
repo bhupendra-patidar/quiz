@@ -9,6 +9,6 @@ $functions = [
         'description' => 'Insert ai response to a record into mdl_quiz_response table',
         'type'        => 'write',
         'ajax'        => false,
-        //'capabilities'=> ['moodle/quiz:view']
+        //'capabilities'=> ['mod/quiz:manage']
     ],
 ];

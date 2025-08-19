@@ -26,7 +26,7 @@ class externallib extends external_api {
             'status' => new external_value(PARAM_INT, 'Status (0 = not graded, 1 = graded)'),
             'grade' => new external_value(PARAM_RAW, 'Grade'),
             'feedbackdesc' => new external_value(PARAM_RAW, 'Feedback description'),
-            'question' => new external_multiple_structure(
+            'questions' => new external_multiple_structure(
                 new external_single_structure([
                     'id' => new external_value(PARAM_INT, 'ID'),
                     'grade' => new external_value(PARAM_FLOAT, 'Marks Awarded'),
@@ -56,7 +56,6 @@ class externallib extends external_api {
         // Validate decoded JSON data
         $params = self::validate_parameters(self::airesponse_parameters(), $data);
         
-
         // Validation for grade as integer
         // if (!isset($params['grade']) || !is_numeric($params['grade']) || intval($params['grade'])) {
         //     throw new \moodle_exception('The grade must be an integer value.');
@@ -76,17 +75,31 @@ class externallib extends external_api {
             $record->feedbackdesc = $params['feedbackdesc'];
             $record->errormessage = isset($params['errormessage']) ? $params['errormessage'] : NULL;
             $record->timemodified = time();
-            $record->question = json_encode($params['question']);
+            // $record->question = json_encode($params['questions']);
 
             $existing = $DB->get_record('quiz_response', ['attemptid' => $params['attemptid']]);
-
             if ($existing) {
+
+                $stored_questions = json_decode($params['questions'], true);
+
+                // Loop over existing and apply new grade/feedback
+                foreach ($stored_questions as &$q) {
+                    foreach ($incoming_questions as $new) {
+                        if ($q['id'] == $new['id']) {
+                            $q['grade'] = $new['grade'];
+                            $q['feedbackdesc'] = $new['feedbackdesc'];
+                            break;
+                        }
+                    }
+                }
+
+                $record->question = json_encode($stored_questions, JSON_UNESCAPED_UNICODE);
                 $record->id = $existing->id;
                 $DB->update_record('quiz_response', $record);
                 $message = 'Record has been successfully updated.';
             } else {
-                $record->timecreated = time();
-                $record->id = $DB->insert_record('quiz_response', $record);
+                /*$record->timecreated = time();
+                $record->id = $DB->insert_record('quiz_response', $record);*/
                 $message = 'Record has been successfully inserted.';
             }
             $transaction->allow_commit();

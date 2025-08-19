@@ -92,8 +92,8 @@ function attempt_submitted(\mod_quiz\event\attempt_submitted $event) {
 
             $previoussubmissions = implode(',', $previousattemptids);
 
-            // $fieldshortname = 'indexing_required'; // Replace with your field shortname
-            // $courseindexing =     get_course_custom_field_value($courseid, $fieldshortname);
+            $fieldshortname = 'indexing_required'; // Replace with your field shortname
+            $courseindexing =  get_course_custom_field_value($quiz->course, $fieldshortname);
 
             $data = [
                 'userid' => $userid,
@@ -107,7 +107,7 @@ function attempt_submitted(\mod_quiz\event\attempt_submitted $event) {
                 'previoussubmissions' => trim($previoussubmissions),
                 'studentname' => fullname($user),
                 'isdeleted' => false,
-                'indexingflag' => false, //($courseindexing == 1) ? 1 : 0,
+                'indexingflag' => ($courseindexing == 1) ? 1 : 0,
                 'questions' => []
             ];
 

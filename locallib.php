@@ -107,74 +107,165 @@ function attempt_submitted(\mod_quiz\event\attempt_submitted $event) {
                 'previoussubmissions' => trim($previoussubmissions),
                 'studentname' => fullname($user),
                 'isdeleted' => false,
-                'indexingflag' => ($courseindexing == 1) ? 1 : 0,
+                'indexingflag' => ($courseindexing == 1) ? true : false,
                 'questions' => []
             ];
 
             $is_qtype_grage = 0;
+            $i = 0;
+            foreach ($quba->get_attempt_iterator() as $slot => $qa) {
 
-            foreach ($quba->get_attempt_iterator() as $slot => $question_attempt) {
-                $question = $question_attempt->get_question();
+                $question = $qa->get_question();
+                $questionname = format_string($question->name);
+                $questiontext = strip_tags(format_text($question->questiontext, $question->questiontextformat));
+                $responses = $qa->get_last_qt_data(); // raw response data
+                $summary = $qa->get_response_summary(); // readable summary
+                $maxmark = $qa->get_max_mark();
+                $fraction = $qa->get_fraction();
+                $iscorrect = ($fraction == 1.0 ? "Yes" : "No");
 
-                if ($question->qtype instanceof qtype_essay) {
-
-                    $is_qtype_grage = 1;
-
-                    // Essay text
-                    $response = $question_attempt->get_last_qt_data();
-                    $maxmark = $question_attempt->get_max_mark();
-                    // $essaytext = $response['answer'] ?? '';
-
-                    $essaytext = $question->summarise_response($response); // Pass only the array
-
-                    // Get all steps via full_step_iterator
-                    $steps = $quba->get_question_attempt($slot)->get_full_step_iterator();
-                    $foundFiles = false;
-                    $fileids = [];
-
-                    // Loop over steps in reverse to find the one that has the file
-                    foreach (array_reverse(iterator_to_array($steps)) as $step) {
-                        $itemid = $step->get_id();
-
-                        $files = $fs->get_area_files(
-                            $contextid,
-                            'question',
-                            'response_attachments',
-                            $itemid,
-                            'itemid, filepath, filename',
-                            false
-                        );
-
-                        if (!empty($files)) {
-                            foreach ($files as $file) {
-                                $fileids[] = $file->get_id();
-                            }
-
-                            $foundFiles = true;
-                            break;
-                        }
-                    }
-
-                    $fileids = implode(',', $fileids);
-
-                    if ($essaytext) {
-                        $answer = explode('Attachments', $essaytext);
-                        $essaytext = $answer[0];
-                    }
-                    
-                    $data['questions'][] = [
-                        'id' => $question->id,
-                        'qtitle' => $question->name,
-                        'qtext' => $question->questiontext,
-                        'qtype' => 'essay',
-                        'minwordlimit' => $question->minwordlimit ? '"'.$question->minwordlimit.'"' : '',
-                        'maxwordlimit' => $question->maxwordlimit ? '"'.$question->maxwordlimit.'"' : '',
-                        'maxmark' => $maxmark,
-                        'answer' => $essaytext,
-                        'fileids' => $fileids
-                    ];
-
+                if ($fraction == 1.0) {
+                    $iscorrect = 'Correct';
+                } elseif ($fraction == 0) {
+                    $iscorrect = 'Incorrect';
+                } else {
+                    $iscorrect = 'Partially Correct';
                 }
+
+                $data['questions'][$i]['id'] = $question->id;
+                $data['questions'][$i]['qtitle'] = $questionname;
+                $data['questions'][$i]['qtext'] = $questiontext;
+                $data['questions'][$i]['qtype'] = $question->qtype->name();
+                $data['questions'][$i]['maxmark'] = $maxmark;
+                $data['questions'][$i]['answer'] = $summary;
+                //$data['questions'][$i]['resultflag'] = $fraction;
+                $data['questions'][$i]['resultflag'] = $iscorrect;
+                
+                $correctresponse = $qa->get_correct_response();
+                $rightanswer = $correctresponse ? $question->summarise_response($correctresponse) : '[No correct response]';
+                $data['questions'][$i]['rightanswer'] = $rightanswer;
+
+                $options = [];
+                //$data['questions'][$i]['options'] = json_encode($question->answers);
+
+                // Handle by question type
+                switch ($question->qtype->name()) {
+                    // case 'shortanswer':
+                    // case 'numerical':
+                    // case 'multichoice':
+                    // case 'calculated':
+                    // case 'calculatedmulti':
+                    // case 'calculatedsimple':
+                    
+                    case 'truefalse':
+                        $data['questions'][$i]['options'] = '';
+                        break;
+
+                    case 'match':
+                        $options['stems'] = $question->stems;
+                        $options['choices'] = $question->choices;
+                        $options['right'] = $question->right;
+                        $data['questions'][$i]['options'] = json_encode($options);
+                        break;
+
+                    case 'randomsamatch':
+                        $options['stems'] = $question->stems;
+                        $options['choices'] = $question->choices;
+                        $options['right'] = $question->right;
+                        $data['questions'][$i]['options'] = json_encode($options);
+                        break;
+
+                    case 'ddwtos':
+                        $options['choices'] = $question->choices;
+                        $options['places'] = $question->choices;
+                        $options['rightchoices'] = $question->rightchoices;
+                        $data['questions'][$i]['options'] = json_encode($options);
+                        break;
+
+                    case 'ddimageortext':
+                        $data['questions'][$i]['options'] = '';
+                        break;
+
+                    case 'multianswer':
+                        foreach ($question->subquestions as $sub) {
+                            $options[] =  $subquestiontext = format_text($sub->questiontext, FORMAT_HTML);
+                        }
+                        $data['questions'][$i]['options'] = json_encode($options);
+                        break;
+
+                    case 'gapselect':
+                        $options['choices'] = $question->choices;
+                        $options['places'] = $question->choices;
+                        $options['rightchoices'] = $question->rightchoices;
+                        $data['questions'][$i]['options'] = json_encode($options);
+                        break;
+
+                    case 'ddmarker':
+                        $data['questions'][$i]['options'] = '';
+                        //json_encode($responses);
+                        break;
+
+                    case 'coderunner':
+                        $is_qtype_grage = 1;
+
+                        $data['questions'][$i]['testcases'] = json_encode($question->testcases);
+                        $data['questions'][$i]['options'] = '';
+                        break;
+
+                    case 'essay':
+                        $is_qtype_grage = 1;
+
+                        // Get all steps via full_step_iterator
+                        $steps = $quba->get_question_attempt($slot)->get_full_step_iterator();
+                        $foundFiles = false;
+                        $fileids = [];
+
+                        // Loop over steps in reverse to find the one that has the file
+                        foreach (array_reverse(iterator_to_array($steps)) as $step) {
+                            $itemid = $step->get_id();
+
+                            $files = $fs->get_area_files(
+                                $contextid,
+                                'question',
+                                'response_attachments',
+                                $itemid,
+                                'itemid, filepath, filename',
+                                false
+                            );
+
+                            if (!empty($files)) {
+                                foreach ($files as $file) {
+                                    $fileids[] = $file->get_id();
+                                }
+
+                                $foundFiles = true;
+                                break;
+                            }
+                        }
+
+                        $fileids = implode(',', $fileids);
+                        if ($summary) {
+                            $summaryanswer = explode('Attachments', $summary);
+                            $summary = $summaryanswer[0];
+                        }
+
+                        $data['questions'][$i]['options'] = json_encode($question->answers);
+                        $data['questions'][$i]['minwordlimit']= $question->minwordlimit ? '"'.$question->minwordlimit.'"' : '';
+                        $data['questions'][$i]['maxwordlimit']= $question->maxwordlimit ? '"'.$question->maxwordlimit.'"' : '';
+                        $data['questions'][$i]['fileids'] = $fileids;
+                        break;
+
+                    default:
+                        foreach ($question->answers as $aid => $answer) {
+                            $optiontext = format_string($answer->answer);
+                            $options[] = $optiontext;
+                        }
+                        $data['questions'][$i]['options'] = json_encode($options);
+                        // $data['questions'][$i]['options1'] = json_encode($question->answers);
+                        
+                }
+
+                $i++;
             }
 
             if ($is_qtype_grage) {
